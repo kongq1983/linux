@@ -477,7 +477,7 @@ static int alloc_fd(unsigned start, unsigned end, unsigned flags)
 	spin_lock(&files->file_lock);
 repeat:
 	fdt = files_fdtable(files);
-	fd = start;
+	fd = start; // start from 0
 	if (fd < files->next_fd)
 		fd = files->next_fd;
 
@@ -504,7 +504,7 @@ repeat:
 		goto repeat;
 
 	if (start <= files->next_fd)
-		files->next_fd = fd + 1;
+		files->next_fd = fd + 1 // next = fd+1
 
 	__set_open_fd(fd, fdt);
 	if (flags & O_CLOEXEC)
@@ -590,6 +590,8 @@ void fd_install(unsigned int fd, struct file *file)
 	smp_rmb();
 	fdt = rcu_dereference_sched(files->fdt);
 	BUG_ON(fdt->fd[fd] != NULL);
+	// 将文件描述符表中的file类型的指针数组中对应fd的项指向file
+	// 这样文件描述符fd与file就建立了对应关系
 	rcu_assign_pointer(fdt->fd[fd], file);
 	rcu_read_unlock_sched();
 }
@@ -1021,7 +1023,7 @@ __releases(&files->file_lock)
 	 * scope of POSIX or SUS, since neither considers shared descriptor
 	 * tables and this condition does not arise without those.
 	 */
-	fdt = files_fdtable(files);
+	fdt = files_fdtable(files); ////根据句柄fd获取file结构体，fdt->fd可以理解为一个数组，以文件句柄fd为索引
 	tofree = fdt->fd[fd];
 	if (!tofree && fd_is_open(fd, fdt))
 		goto Ebusy;

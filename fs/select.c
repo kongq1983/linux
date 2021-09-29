@@ -407,7 +407,7 @@ set_fd_set(unsigned long nr, void __user *ufdset, unsigned long *fdset)
 static inline
 void zero_fd_set(unsigned long nr, unsigned long *fdset)
 {
-	memset(fdset, 0, FDS_BYTES(nr));
+	memset(fdset, 0, FDS_BYTES(nr)); // 用0替换
 }
 
 #define FDS_IN(fds, n)		(fds->in + n)
@@ -610,7 +610,7 @@ static int do_select(int n, fd_set_bits *fds, struct timespec64 *end_time)
 	return retval;
 }
 
-/*
+/* todo select入口 do_select准备好了位图,然后调用do_select,将返回的结果集,返回到用户空间
  * We can actually return ERESTARTSYS instead of EINTR, but I'd
  * like to be certain this leads to no problems. So I return
  * EINTR just for safety.
@@ -627,7 +627,7 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 	size_t size, alloc_size;
 	struct fdtable *fdt;
 	/* Allocate small arguments on the stack to save memory and be faster */
-	long stack_fds[SELECT_STACK_ALLOC/sizeof(long)];
+	long stack_fds[SELECT_STACK_ALLOC/sizeof(long)]; //stack_fds[256/8] = stack_fds[32]
 
 	ret = -EINVAL;
 	if (n < 0)
@@ -635,10 +635,10 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 
 	/* max_fds can increase, so grab it once to avoid race */
 	rcu_read_lock();
-	fdt = files_fdtable(current->files);
+	fdt = files_fdtable(current->files);  /*获取当前进程的文件描述符表*/
 	max_fds = fdt->max_fds;
 	rcu_read_unlock();
-	if (n > max_fds)
+	if (n > max_fds) /*修正用户传入的第一个参数：fd_set中文件描述符的最大值*/
 		n = max_fds;
 
 	/*
@@ -647,7 +647,7 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 	 * long-words. 
 	 */
 	size = FDS_BYTES(n);
-	bits = stack_fds;
+	bits = stack_fds; // bits = stack_fds[32]
 	if (size > sizeof(stack_fds) / 6) {
 		/* Not enough space in on-stack array; must use kmalloc */
 		ret = -ENOMEM;
@@ -655,7 +655,7 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 			goto out_nofds;
 
 		alloc_size = 6 * size;
-		bits = kvmalloc(alloc_size, GFP_KERNEL);
+		bits = kvmalloc(alloc_size, GFP_KERNEL); // 尝试分配物理上连续的内存alloc_size
 		if (!bits)
 			goto out_nofds;
 	}
@@ -674,7 +674,7 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 	zero_fd_set(n, fds.res_out);
 	zero_fd_set(n, fds.res_ex);
 
-	ret = do_select(n, &fds, end_time);
+	ret = do_select(n, &fds, end_time); // todo do_select来处理
 
 	if (ret < 0)
 		goto out;
@@ -684,7 +684,7 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 			goto out;
 		ret = 0;
 	}
-
+	/*把结果集,拷贝回用户空间*/
 	if (set_fd_set(n, inp, fds.res_in) ||
 	    set_fd_set(n, outp, fds.res_out) ||
 	    set_fd_set(n, exp, fds.res_ex))
@@ -692,11 +692,11 @@ int core_sys_select(int n, fd_set __user *inp, fd_set __user *outp,
 
 out:
 	if (bits != stack_fds)
-		kvfree(bits);
+		kvfree(bits); /*对应上面的kmalloc*/
 out_nofds:
 	return ret;
 }
-
+// todo select入口
 static int kern_select(int n, fd_set __user *inp, fd_set __user *outp,
 		       fd_set __user *exp, struct __kernel_old_timeval __user *tvp)
 {

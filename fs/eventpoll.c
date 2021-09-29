@@ -127,7 +127,7 @@ struct eppoll_entry {
 	wait_queue_head_t *whead;
 };
 
-/*
+/* 当向系统中添加一个fd时，就会创建一个epitem结构体，这是内核管理epoll的基本数据结构
  * Each file descriptor added to the eventpoll interface will
  * have an entry of this type linked to the "rbr" RB tree.
  * Avoid increasing the size of this struct, there can be many thousands
@@ -135,14 +135,14 @@ struct eppoll_entry {
  */
 struct epitem {
 	union {
-		/* RB tree node links this structure to the eventpoll RB tree */
-		struct rb_node rbn;
+		/* RB tree node links this structure to the eventpoll RB tree 挂载到eventpoll的红黑树节点 */
+		struct rb_node rbn; //用于主结构管理的红黑树
 		/* Used to free the struct epitem */
 		struct rcu_head rcu;
 	};
-
+	/** 链表节点, 所有已经ready的epitem都会被链到eventpoll的rdllist中 */
 	/* List header used to link this structure to the eventpoll ready list */
-	struct list_head rdllink;
+	struct list_head rdllink;   // 事件就绪队列
 
 	/*
 	 * Works together "struct eventpoll"->ovflist in keeping the
@@ -150,22 +150,22 @@ struct epitem {
 	 */
 	struct epitem *next;
 
-	/* The file descriptor information this item refers to */
+	/* The file descriptor information this item refers to /* 文件描述符信息fd + file, 红黑树的key */   */
 	struct epoll_filefd ffd;
 
 	/* List containing poll wait queues */
 	struct eppoll_entry *pwqlist;
 
-	/* The "container" of this item */
-	struct eventpoll *ep;
+	/* The "container" of this item 当前epitem属于哪个eventpoll */
+	struct eventpoll *ep;  // 该项属于哪个主结构体
 
 	/* List header used to link this item to the "struct file" items list */
 	struct hlist_node fllink;
 
 	/* wakeup_source used when EPOLLWAKEUP is set */
 	struct wakeup_source __rcu *ws;
-
-	/* The structure that describe the interested events and the source fd */
+	/**  当前的epitem关系哪些events, 这个数据是调用epoll_ctl时从用户态传递过来 */
+	/* The structure that describe the interested events and the source fd ,epoll_ctl 传入的用户数据*/
 	struct epoll_event event;
 };
 
@@ -175,30 +175,30 @@ struct epitem {
  * interface.
  */
 struct eventpoll {
-	/*
+	/* 添加, 修改或者删除监听fd的时候, 以及epoll_wait返回, 向用户空间 传递数据时都会持有这个互斥锁, 所以在用户空间可以放心的在多个线程
 	 * This mutex is used to ensure that files are not removed
 	 * while epoll is using them. This is held during the event
 	 * collection loop, the file cleanup path, the epoll file exit
-	 * code and the ctl operations.
+	 * code and the ctl operations. 中同时执行epoll相关的操作, 内核级已经做了保护
 	 */
 	struct mutex mtx;
 
-	/* Wait queue used by sys_epoll_wait() */
+	/* Wait queue used by sys_epoll_wait()  调用epoll_wait()时, 我们就是"睡"在了这个等待队列上...  */
 	wait_queue_head_t wq;
 
-	/* Wait queue used by file->poll() */
+	/* Wait queue used by file->poll() 这个用于epollfd被poll的时候. */
 	wait_queue_head_t poll_wait;
 
-	/* List of ready file descriptors */
-	struct list_head rdllist;
+	/* List of ready file descriptors 所有已经ready的epitem都在这个链表里面 */
+	struct list_head rdllist; // 准备就绪的事件链表
 
 	/* Lock which protects rdllist and ovflist */
 	rwlock_t lock;
 
-	/* RB tree root used to store monitored fd structs */
-	struct rb_root_cached rbr;
+	/* RB tree root used to store monitored fd structs 红黑树 所有要监听的epitem都在这里 */
+	struct rb_root_cached rbr; // 用于管理所有fd的红黑树（根节点）
 
-	/*
+	/* 这是一个单链表链接着所有的struct epitem当event转移到用户空间时
 	 * This is a single linked list that chains all the "struct epitem" that
 	 * happened while transferring ready events to userspace w/out
 	 * holding ->lock.
@@ -208,7 +208,7 @@ struct eventpoll {
 	/* wakeup_source used when ep_scan_ready_list is running */
 	struct wakeup_source *ws;
 
-	/* The user that created the eventpoll descriptor */
+	/* The user that created the eventpoll descriptor 这里保存了一些用户变量, 比如fd监听数量的最大值等等 */
 	struct user_struct *user;
 
 	struct file *file;
@@ -1648,7 +1648,7 @@ static int ep_send_events(struct eventpoll *ep,
 		struct wakeup_source *ws;
 		__poll_t revents;
 
-		if (res >= maxevents)
+		if (res >= maxevents) //就绪事件 > maxevents
 			break;
 
 		/*
@@ -1702,7 +1702,7 @@ static int ep_send_events(struct eventpoll *ep,
 			 * ep_scan_ready_list() holding "mtx" and the
 			 * poll callback will queue them in ep->ovflist.
 			 */
-			list_add_tail(&epi->rdllink, &ep->rdllist);
+			list_add_tail(&epi->rdllink, &ep->rdllist); // rdllist: ready事件列表
 			ep_pm_stay_awake(epi);
 		}
 	}
@@ -1733,13 +1733,13 @@ static struct timespec64 *ep_timeout_to_timespec(struct timespec64 *to, long ms)
 	return to;
 }
 
-/**
+/** 检索就绪事件，并将它们传递给提供的调用者事件缓冲区。
  * ep_poll - Retrieves ready events, and delivers them to the caller supplied
  *           event buffer.
  *
  * @ep: Pointer to the eventpoll context.
  * @events: Pointer to the userspace buffer where the ready events should be
- *          stored.
+ *          stored. 指向就绪事件所在的用户空间缓冲区的指针存储
  * @maxevents: Size (in terms of number of events) of the caller event buffer.
  * @timeout: Maximum timeout for the ready events fetch operation, in
  *           timespec. If the timeout is zero, the function will not block,
@@ -1750,6 +1750,11 @@ static struct timespec64 *ep_timeout_to_timespec(struct timespec64 *to, long ms)
  * Returns: Returns the number of ready events which have been fetched, or an
  *          error code, in case of error.
  */
+ // eventpoll.h
+//struct epoll_event {
+//	__poll_t events;
+//	__u64 data;
+//} EPOLL_PACKED;
 static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
 		   int maxevents, struct timespec64 *timeout)
 {
@@ -1784,7 +1789,7 @@ static int ep_poll(struct eventpoll *ep, struct epoll_event __user *events,
 
 	while (1) {
 		if (eavail) {
-			/*
+			/* 尝试将事件传输到用户空间。 如果我们得到0个事件，但仍有超时，我们继续再次尝试
 			 * Try to transfer events to user space. In case we get
 			 * 0 events and there's still timeout left over, we go
 			 * trying again in search of more luck.
@@ -1959,17 +1964,17 @@ static int do_epoll_create(int flags)
 
 	if (flags & ~EPOLL_CLOEXEC)
 		return -EINVAL;
-	/*
+	/* 申请一个struct eventpoll内存空间,执行初始化后赋给ep
 	 * Create the internal data structure ("struct eventpoll").
 	 */
-	error = ep_alloc(&ep);
+	error = ep_alloc(&ep); // eventpoll *ep
 	if (error < 0)
 		return error;
-	/*
+	/* 获取一个未使用的fd句柄
 	 * Creates all the items needed to setup an eventpoll file. That is,
 	 * a file structure and a free file descriptor.
 	 */
-	fd = get_unused_fd_flags(O_RDWR | (flags & O_CLOEXEC));
+	fd = get_unused_fd_flags(O_RDWR | (flags & O_CLOEXEC)); // alloc_fd(0, nofile, flags) file.c:470:530
 	if (fd < 0) {
 		error = fd;
 		goto out_free_ep;
@@ -1980,9 +1985,9 @@ static int do_epoll_create(int flags)
 		error = PTR_ERR(file);
 		goto out_free_fd;
 	}
-	ep->file = file;
-	fd_install(fd, file);
-	return fd;
+	ep->file = file; //设置ep的file
+	fd_install(fd, file); // 将文件描述符表中的file类型的指针数组中对应fd的项指向file  在file.c
+	return fd; // 这个fd就是epfd句柄,返回给用户进程的
 
 out_free_fd:
 	put_unused_fd(fd);
@@ -2181,10 +2186,10 @@ SYSCALL_DEFINE4(epoll_ctl, int, epfd, int, op, int, fd,
 /*
  * Implement the event wait interface for the eventpoll file. It is the kernel
  * part of the user space epoll_wait(2).
- */
+ */ // epfd是Epoll对应的文件描述符，events表示调用者所有可用事件的集合
 static int do_epoll_wait(int epfd, struct epoll_event __user *events,
 			 int maxevents, struct timespec64 *to)
-{
+{ // maxevents表示最多等到多少个事件就返回
 	int error;
 	struct fd f;
 	struct eventpoll *ep;
@@ -2198,7 +2203,7 @@ static int do_epoll_wait(int epfd, struct epoll_event __user *events,
 		return -EFAULT;
 
 	/* Get the "struct file *" for the eventpoll file */
-	f = fdget(epfd);
+	f = fdget(epfd);  // 获取epfd对应的eventpoll文件的file实例，file结构是在epoll_create中创建的
 	if (!f.file)
 		return -EBADF;
 
@@ -2214,7 +2219,7 @@ static int do_epoll_wait(int epfd, struct epoll_event __user *events,
 	 * At this point it is safe to assume that the "private_data" contains
 	 * our own data structure.
 	 */
-	ep = f.file->private_data;
+	ep = f.file->private_data; //socket
 
 	/* Time to fish for events ... */
 	error = ep_poll(ep, events, maxevents, to);

@@ -73,7 +73,7 @@ struct dentry;
 
 #define rcu_dereference_check_fdtable(files, fdtfd) \
 	rcu_dereference_check((fdtfd), lockdep_is_held(&(files)->file_lock))
-
+// //根据句柄fd获取file结构体，fdt->fd可以理解为一个数组，以文件句柄fd为索引
 #define files_fdtable(files) \
 	rcu_dereference_check_fdtable((files), (files)->fdt)
 
