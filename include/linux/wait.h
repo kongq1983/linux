@@ -35,7 +35,7 @@ struct wait_queue_entry {
 };
 
 struct wait_queue_head {
-	spinlock_t		lock;
+	spinlock_t		lock;  //自旋锁
 	struct list_head	head;
 };
 typedef struct wait_queue_head wait_queue_head_t;

@@ -121,7 +121,7 @@ struct eppoll_entry {
 	 * Wait queue item that will be linked to the target file wait
 	 * queue head.
 	 */
-	wait_queue_entry_t wait;
+	wait_queue_entry_t wait;  // spinlock_t  list_head
 
 	/* The wait queue head that linked the "wait" wait queue item */
 	wait_queue_head_t *whead;
@@ -1238,14 +1238,14 @@ static void ep_ptable_queue_proc(struct file *file, wait_queue_head_t *whead,
 		epq->epi = NULL;
 		return;
 	}
-
-	init_waitqueue_func_entry(&pwq->wait, ep_poll_callback);
-	pwq->whead = whead;
+	// 初始化一个等待队列节点，其中唤醒函数设置为ep_poll_callback 唤醒回调函数为ep_poll_callback！！！
+	init_waitqueue_func_entry(&pwq->wait, ep_poll_callback); // todo 唤醒回调
+	pwq->whead = whead; /* 还要保存资源文件监听队列的队列头whead */
 	pwq->base = epi;
 	if (epi->event.events & EPOLLEXCLUSIVE)
 		add_wait_queue_exclusive(whead, &pwq->wait);
 	else
-		add_wait_queue(whead, &pwq->wait);
+		add_wait_queue(whead, &pwq->wait); // 将eppoll_entry挂载到资源文件的监听队列中， add_wait_queue表示将队列元素加入到等待队列头部，并设置非互斥等待
 	pwq->next = epi->pwqlist;
 	epi->pwqlist = pwq;
 }
@@ -1655,7 +1655,7 @@ static int ep_send_events(struct eventpoll *ep,
 		 * Activate ep->ws before deactivating epi->ws to prevent
 		 * triggering auto-suspend here (in case we reactive epi->ws
 		 * below).
-		 *
+		 *_
 		 * This could be rearranged to delay the deactivation of epi->ws
 		 * instead, but then epi->ws would temporarily be out of sync
 		 * with ep_is_linked().

@@ -14,15 +14,15 @@ void __init_waitqueue_head(struct wait_queue_head *wq_head, const char *name, st
 }
 
 EXPORT_SYMBOL(__init_waitqueue_head);
-
+// add_wait_queue()实现将等待队列元素插入等待队列第一个元素的位置
 void add_wait_queue(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry)
 {
 	unsigned long flags;
 
-	wq_entry->flags &= ~WQ_FLAG_EXCLUSIVE;
-	spin_lock_irqsave(&wq_head->lock, flags);
-	__add_wait_queue(wq_head, wq_entry);
-	spin_unlock_irqrestore(&wq_head->lock, flags);
+	wq_entry->flags &= ~WQ_FLAG_EXCLUSIVE; //并设置等待队列元素的flags值为非WQ_FLAG_EXCLUSIVE，即为0，表示此进程不是高优先级进程
+	spin_lock_irqsave(&wq_head->lock, flags); //保存本地中断状态 关闭中断 获取自旋锁
+	__add_wait_queue(wq_head, wq_entry); // 将等待项,加入到等待队列头部
+	spin_unlock_irqrestore(&wq_head->lock, flags);   //恢复本地中断状态 释放锁
 }
 EXPORT_SYMBOL(add_wait_queue);
 
