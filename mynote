@@ -7,3 +7,8 @@ select.c
 eventpoll: 177
 ep_poll: eventpoll.c:1758
 ep_send_events: eventpoll.c:1622
+
+
+ep_ptable_queue_proc
+
+init_waitqueue_func_entry(&pwq->wait, ep_poll_callback);
